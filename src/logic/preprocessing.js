@@ -65,6 +65,7 @@ function findBoundingBox(matrix) {
   let minY = matrix.length;
   let maxX = 0;
   let maxY = 0;
+  let hasContent = false;
   
   for (let y = 0; y < matrix.length; y++) {
     for (let x = 0; x < matrix[y].length; x++) {
@@ -73,8 +74,14 @@ function findBoundingBox(matrix) {
         minY = Math.min(minY, y);
         maxX = Math.max(maxX, x);
         maxY = Math.max(maxY, y);
+        hasContent = true;
       }
     }
+  }
+  
+  // If no content found, return full canvas bounds
+  if (!hasContent) {
+    return { minX: 0, minY: 0, maxX: matrix[0].length - 1, maxY: matrix.length - 1 };
   }
   
   return { minX, minY, maxX, maxY };
@@ -114,10 +121,10 @@ function normalizeSize(matrix, targetWidth, targetHeight) {
   
   for (let y = 0; y < targetHeight; y++) {
     const row = [];
-    const sourceY = Math.floor((y / targetHeight) * sourceHeight);
+    const sourceY = Math.min(Math.floor((y / targetHeight) * sourceHeight), sourceHeight - 1);
     
     for (let x = 0; x < targetWidth; x++) {
-      const sourceX = Math.floor((x / targetWidth) * sourceWidth);
+      const sourceX = Math.min(Math.floor((x / targetWidth) * sourceWidth), sourceWidth - 1);
       row.push(matrix[sourceY][sourceX]);
     }
     

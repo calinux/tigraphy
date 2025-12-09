@@ -27,7 +27,7 @@
     "react",
     "component"
   ],
-  "author": "",
+  "author": "Tigraphy Contributors",
   "license": "MIT",
   "peerDependencies": {
     "react": "^18.0.0",
