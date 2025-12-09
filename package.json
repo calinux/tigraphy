@@ -1,0 +1,42 @@
+{
+  "name": "tigraphy",
+  "version": "0.1.0",
+  "description": "Standalone React component for handwritten Tibetan character recognition (OCR)",
+  "type": "module",
+  "main": "./dist/tigraphy.umd.cjs",
+  "module": "./dist/tigraphy.js",
+  "exports": {
+    ".": {
+      "import": "./dist/tigraphy.js",
+      "require": "./dist/tigraphy.umd.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "tibetan",
+    "ocr",
+    "handwriting",
+    "recognition",
+    "react",
+    "component"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "vite": "^5.0.0"
+  }
+}
