@@ -2,11 +2,10 @@
 set -euo pipefail
 
 # =============================================================================
-# IMPROVED OCR LAUNCHER v2
+# CLIPBOARD OCR LAUNCHER v3
 # =============================================================================
-# Two-step selection:
-# 1. Content type (preprocessing method)
-# 2. Language
+# No questions at startup - just defaults
+# All settings modifiable at runtime via keyboard commands
 # =============================================================================
 
 VENV="/Users/calinux/.venvs/ocr"
@@ -25,289 +24,40 @@ elif [[ -x "/usr/local/bin/tesseract" ]]; then
   export TESSERACT_CMD="/usr/local/bin/tesseract"
 fi
 
-# Default values
+# =============================================================================
+# DEFAULT VALUES (all modifiable at runtime)
+# =============================================================================
+
+# Language & OCR engine
 export OCR_LANG="${OCR_LANG:-eng}"
 export OCR_PSM="${OCR_PSM:-6}"
 export OCR_OEM="${OCR_OEM:-3}"
 export OCR_DPI="${OCR_DPI:-300}"
-export OCR_PRESERVE_SPACES="${OCR_PRESERVE_SPACES:-1}"
+
+# Preprocessing
+export OCR_PREPROCESS="${OCR_PREPROCESS:-minimal}"
 export OCR_UPSCALE="${OCR_UPSCALE:-1.5}"
 export OCR_THRESH="${OCR_THRESH:-0}"
-export OCR_POLL_SEC="${OCR_POLL_SEC:-0.5}"
+
+# Output format
+export OCR_PRESERVE_SPACES="${OCR_PRESERVE_SPACES:-1}"
 export OCR_LAYOUT="${OCR_LAYOUT:-grid}"
-export OCR_PREPROCESS="${OCR_PREPROCESS:-standard}"
-export OCR_DEBUG="${OCR_DEBUG:-0}"
-export OCR_WHITELIST="${OCR_WHITELIST:-}"
 export OCR_CONCAT="${OCR_CONCAT:-1}"
 
-# =============================================================================
-# STEP 1: Content Type Selection
-# =============================================================================
-echo ""
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║              IMPROVED CLIPBOARD OCR v2                       ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
-echo ""
-echo "┌─────────────────────────────────────────────────────────────┐"
-echo "│ STEP 1: Select content type                                 │"
-echo "└─────────────────────────────────────────────────────────────┘"
-echo ""
-echo "  1) Technical/Code    - Code, configs, logs, .sln files"
-echo "                         (preserves fine details, grid layout)"
-echo ""
-echo "  2) Token/Key/Hex     - Tokens, API keys, hex dumps, no language"
-echo "                         (character-only, no dictionary)"
-echo ""
-echo "  3) Document Clean    - Clean scanned documents, screenshots"
-echo "                         (minimal preprocessing)"
-echo ""
-echo "  4) Document Noisy    - Low-quality scans, photos of text"
-echo "                         (denoising + adaptive threshold)"
-echo ""
-echo "  5) Custom            - Use environment variables"
-echo ""
-echo -n "Enter choice (1-5): "
-read -r CONTENT_CHOICE
+# Filtering (artifact removal)
+export OCR_CONF_MIN="${OCR_CONF_MIN:-50}"
+export OCR_HEIGHT_MIN="${OCR_HEIGHT_MIN:-8}"
+export OCR_HEIGHT_MAX="${OCR_HEIGHT_MAX:-60}"
+export OCR_MASK_COLORS="${OCR_MASK_COLORS:-0}"
+export OCR_REGEX_CLEANUP="${OCR_REGEX_CLEANUP:-1}"
 
-case "$CONTENT_CHOICE" in
-  1)
-    # CODE/TECHNICAL
-    export OCR_PSM="6"
-    export OCR_OEM="3"
-    export OCR_DPI="300"
-    export OCR_PRESERVE_SPACES="1"
-    export OCR_UPSCALE="2.0"
-    export OCR_THRESH="0"
-    export OCR_PREPROCESS="code"
-    export OCR_LAYOUT="grid"
-    export OCR_DEBUG="1"
-    export OCR_WHITELIST=""
-    CONTENT_DESC="Technical/Code"
-    ;;
-  2)
-    # TOKEN/KEY/HEX - No language model, just characters
-    export OCR_PSM="6"
-    export OCR_OEM="3"
-    export OCR_DPI="300"
-    export OCR_PRESERVE_SPACES="1"
-    export OCR_UPSCALE="2.0"
-    export OCR_THRESH="0"
-    export OCR_PREPROCESS="code"
-    export OCR_LAYOUT="grid"
-    export OCR_DEBUG="1"
-    # Whitelist: alphanumeric + common token chars
-    export OCR_WHITELIST="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_=+/:.@#$%&*()[]{}|\\<>,;\"'"
-    CONTENT_DESC="Token/Key/Hex"
-    ;;
-  3)
-    # DOCUMENT CLEAN
-    export OCR_PSM="3"
-    export OCR_OEM="3"
-    export OCR_DPI="300"
-    export OCR_PRESERVE_SPACES="1"
-    export OCR_UPSCALE="1.5"
-    export OCR_THRESH="0"
-    export OCR_PREPROCESS="minimal"
-    export OCR_LAYOUT="plain"
-    export OCR_DEBUG="0"
-    export OCR_WHITELIST=""
-    CONTENT_DESC="Document Clean"
-    ;;
-  4)
-    # DOCUMENT NOISY
-    export OCR_PSM="3"
-    export OCR_OEM="3"
-    export OCR_DPI="300"
-    export OCR_PRESERVE_SPACES="1"
-    export OCR_UPSCALE="2.0"
-    export OCR_THRESH="0"
-    export OCR_PREPROCESS="noisy"
-    export OCR_LAYOUT="plain"
-    export OCR_DEBUG="1"
-    export OCR_WHITELIST=""
-    CONTENT_DESC="Document Noisy"
-    ;;
-  5)
-    CONTENT_DESC="Custom"
-    ;;
-  *)
-    echo "Invalid choice. Using defaults."
-    CONTENT_DESC="Default"
-    ;;
-esac
-
-echo ""
-echo "[Content: $CONTENT_DESC]"
+# Misc
+export OCR_DEBUG="${OCR_DEBUG:-0}"
+export OCR_POLL_SEC="${OCR_POLL_SEC:-0.5}"
+export OCR_WHITELIST="${OCR_WHITELIST:-}"
 
 # =============================================================================
-# STEP 2: Language Selection
-# =============================================================================
-echo ""
-echo "┌─────────────────────────────────────────────────────────────┐"
-echo "│ STEP 2: Select language                                     │"
-echo "└─────────────────────────────────────────────────────────────┘"
-echo ""
-echo "  1) English           (eng)"
-echo "  2) French            (fra)"
-echo "  3) Romanian          (ron)"
-echo "  4) Tibetan           (bod)"
-echo "  5) English + Tibetan (eng+bod)"
-echo "  6) None/Raw          (no language model - for tokens/hex)"
-echo "  7) Custom            (enter manually)"
-echo ""
-echo -n "Enter choice (1-7): "
-read -r LANG_CHOICE
-
-case "$LANG_CHOICE" in
-  1)
-    export OCR_LANG="eng"
-    LANG_DESC="English"
-    ;;
-  2)
-    export OCR_LANG="fra"
-    LANG_DESC="French"
-    ;;
-  3)
-    export OCR_LANG="ron"
-    LANG_DESC="Romanian"
-    ;;
-  4)
-    export OCR_LANG="bod"
-    LANG_DESC="Tibetan"
-    ;;
-  5)
-    export OCR_LANG="eng+bod"
-    LANG_DESC="English + Tibetan"
-    ;;
-  6)
-    # No language model - use OSD (orientation/script detection) only
-    # or eng with whitelist
-    export OCR_LANG="eng"
-    export OCR_WHITELIST="${OCR_WHITELIST:-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_=+/:.@#}"
-    LANG_DESC="None/Raw (whitelist only)"
-    ;;
-  7)
-    echo -n "Enter Tesseract language code (e.g., deu, spa, eng+fra): "
-    read -r CUSTOM_LANG
-    export OCR_LANG="${CUSTOM_LANG:-eng}"
-    LANG_DESC="Custom: $OCR_LANG"
-    ;;
-  *)
-    echo "Invalid choice. Using English."
-    export OCR_LANG="eng"
-    LANG_DESC="English (default)"
-    ;;
-esac
-
-echo ""
-echo "[Language: $LANG_DESC]"
-
-# =============================================================================
-# STEP 3: Output Options
-# =============================================================================
-echo ""
-echo "┌─────────────────────────────────────────────────────────────┐"
-echo "│ STEP 3: Output options                                      │"
-echo "└─────────────────────────────────────────────────────────────┘"
-echo ""
-echo "  Preserve whitespace/spacing?"
-echo "  1) Yes - Keep original spacing (for code, tables, configs)"
-echo "  2) No  - Collapse whitespace (for natural text)"
-echo ""
-echo -n "Enter choice (1-2) [default: 1]: "
-read -r SPACE_CHOICE
-
-case "$SPACE_CHOICE" in
-  2)
-    export OCR_PRESERVE_SPACES="0"
-    export OCR_LAYOUT="plain"
-    SPACE_DESC="No (collapsed)"
-    ;;
-  *)
-    export OCR_PRESERVE_SPACES="1"
-    # Keep OCR_LAYOUT as already set by content type
-    SPACE_DESC="Yes (preserved)"
-    ;;
-esac
-
-echo ""
-echo "[Whitespace: $SPACE_DESC]"
-
-# =============================================================================
-# STEP 4: Concatenation Mode
-# =============================================================================
-echo ""
-echo "┌─────────────────────────────────────────────────────────────┐"
-echo "│ STEP 4: Concatenation mode                                  │"
-echo "└─────────────────────────────────────────────────────────────┘"
-echo ""
-echo "  Append multiple OCR results to the same file?"
-echo "  1) Yes - Concatenate (press 'n' + Enter to start new file)"
-echo "  2) No  - Each image creates a new file"
-echo ""
-echo -n "Enter choice (1-2) [default: 1]: "
-read -r CONCAT_CHOICE
-
-case "$CONCAT_CHOICE" in
-  2)
-    export OCR_CONCAT="0"
-    CONCAT_DESC="No (separate files)"
-    ;;
-  *)
-    export OCR_CONCAT="1"
-    CONCAT_DESC="Yes (append to same file)"
-    ;;
-esac
-
-echo ""
-echo "[Concatenation: $CONCAT_DESC]"
-
-# =============================================================================
-# Summary
-# =============================================================================
-echo ""
-echo "┌─────────────────────────────────────────────────────────────┐"
-echo "│ Configuration Summary                                       │"
-echo "└─────────────────────────────────────────────────────────────┘"
-echo ""
-echo "  Content type:    $CONTENT_DESC"
-echo "  Language:        $LANG_DESC"
-echo "  Whitespace:      $SPACE_DESC"
-echo "  Concatenation:   $CONCAT_DESC"
-echo "  ─────────────────────────────"
-echo "  OCR_LANG:        $OCR_LANG"
-echo "  OCR_PSM:         $OCR_PSM"
-echo "  OCR_PREPROCESS:  $OCR_PREPROCESS"
-echo "  OCR_PRESERVE_SPACES: $OCR_PRESERVE_SPACES"
-echo "  OCR_LAYOUT:      $OCR_LAYOUT"
-echo "  OCR_UPSCALE:     $OCR_UPSCALE"
-echo "  OCR_DEBUG:       $OCR_DEBUG"
-if [[ -n "$OCR_WHITELIST" ]]; then
-  echo "  OCR_WHITELIST:   (set - ${#OCR_WHITELIST} chars)"
-fi
-echo ""
-
-# =============================================================================
-# Check required language packs
-# =============================================================================
-check_lang_installed() {
-  local lang="$1"
-  # Handle combined languages like eng+bod
-  for l in ${lang//+/ }; do
-    if ! "$TESSERACT_CMD" --list-langs 2>/dev/null | grep -q "^${l}$"; then
-      echo "⚠️  Warning: Language '$l' may not be installed."
-      echo "   Install with: brew install tesseract-lang"
-      echo ""
-    fi
-  done
-}
-
-if [[ -n "${TESSERACT_CMD:-}" ]]; then
-  check_lang_installed "$OCR_LANG"
-fi
-
-# =============================================================================
-# Activate venv and run
+# Activate venv
 # =============================================================================
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
@@ -325,7 +75,28 @@ else
   exit 1
 fi
 
-echo "[Launcher] Running: $TARGET"
+# =============================================================================
+# Display startup info
+# =============================================================================
+echo ""
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║              CLIPBOARD OCR v3                                ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+echo "┌─────────────────────────────────────────────────────────────┐"
+echo "│ Current Settings (all modifiable at runtime)                │"
+echo "├─────────────────────────────────────────────────────────────┤"
+echo "│ Language:        $OCR_LANG"
+echo "│ Preprocess:      $OCR_PREPROCESS"
+echo "│ Whitespace:      $([ "$OCR_PRESERVE_SPACES" = "1" ] && echo "preserved (grid)" || echo "collapsed (plain)")"
+echo "│ Concatenation:   $([ "$OCR_CONCAT" = "1" ] && echo "ON" || echo "OFF")"
+echo "│ ─────────────────────────────────────────────────────────── │"
+echo "│ Confidence min:  ${OCR_CONF_MIN}%"
+echo "│ Height filter:   ${OCR_HEIGHT_MIN}-${OCR_HEIGHT_MAX}px"
+echo "│ Color masking:   $([ "$OCR_MASK_COLORS" = "1" ] && echo "ON" || echo "OFF")"
+echo "│ Regex cleanup:   $([ "$OCR_REGEX_CLEANUP" = "1" ] && echo "ON" || echo "OFF")"
+echo "│ Debug:           $([ "$OCR_DEBUG" = "1" ] && echo "ON" || echo "OFF")"
+echo "└─────────────────────────────────────────────────────────────┘"
 echo ""
 
 # Check for image argument (file mode)
@@ -333,7 +104,6 @@ if [[ $# -gt 0 ]]; then
   echo "[Launcher] File mode: $1"
   exec python "$TARGET" "$1"
 else
-  echo "[Launcher] Clipboard watch mode - press Ctrl+C to stop"
-  echo ""
+  echo "[Launcher] Starting clipboard watch..."
   exec python "$TARGET"
 fi
