@@ -250,6 +250,13 @@ def tess_config() -> str:
 
     config = f'--oem {oem} --psm {psm} -c user_defined_dpi={dpi} -c preserve_interword_spaces={preserve_spaces}'
 
+    # Character whitelist - restricts recognition to specific characters
+    # Useful for tokens, hex, API keys where you know the character set
+    whitelist = os.environ.get("OCR_WHITELIST", "")
+    if whitelist:
+        # Escape special chars for tesseract config
+        config += f' -c tessedit_char_whitelist={whitelist}'
+
     # Additional tesseract config options
     extra = os.environ.get("OCR_EXTRA_CONFIG", "")
     if extra:
