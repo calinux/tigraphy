@@ -433,6 +433,81 @@ import threading
 import select
 import sys
 
+# Available languages for runtime switching
+LANGUAGES = {
+    '1': ('eng', 'English'),
+    '2': ('fra', 'French'),
+    '3': ('ron', 'Romanian'),
+    '4': ('bod', 'Tibetan'),
+    '5': ('eng+bod', 'English + Tibetan'),
+}
+
+# Available preprocessing modes
+PREPROCESS_MODES = {
+    '1': ('minimal', 'Minimal (upscale only)'),
+    '2': ('standard', 'Standard'),
+    '3': ('code', 'Code/Technical'),
+    '4': ('noisy', 'Noisy (denoise + threshold)'),
+}
+
+
+class OCRSettings:
+    """Runtime-modifiable OCR settings."""
+    def __init__(self):
+        self.lang = os.environ.get("OCR_LANG", "eng")
+        self.layout = os.environ.get("OCR_LAYOUT", "grid")
+        self.preprocess = os.environ.get("OCR_PREPROCESS", "standard")
+        self.preserve_spaces = os.environ.get("OCR_PRESERVE_SPACES", "1") == "1"
+        self.concat_mode = os.environ.get("OCR_CONCAT", "1") == "1"
+        self.debug = os.environ.get("OCR_DEBUG", "0") == "1"
+        self.lock = threading.Lock()
+
+    def get_all(self):
+        with self.lock:
+            return {
+                'lang': self.lang,
+                'layout': self.layout,
+                'preprocess': self.preprocess,
+                'preserve_spaces': self.preserve_spaces,
+                'concat_mode': self.concat_mode,
+                'debug': self.debug,
+            }
+
+    def set_lang(self, lang: str):
+        with self.lock:
+            self.lang = lang
+            os.environ["OCR_LANG"] = lang
+
+    def set_preprocess(self, mode: str):
+        with self.lock:
+            self.preprocess = mode
+            os.environ["OCR_PREPROCESS"] = mode
+
+    def toggle_whitespace(self):
+        with self.lock:
+            self.preserve_spaces = not self.preserve_spaces
+            os.environ["OCR_PRESERVE_SPACES"] = "1" if self.preserve_spaces else "0"
+            if self.preserve_spaces:
+                self.layout = "grid"
+                os.environ["OCR_LAYOUT"] = "grid"
+            else:
+                self.layout = "plain"
+                os.environ["OCR_LAYOUT"] = "plain"
+            return self.preserve_spaces
+
+    def toggle_concat(self):
+        with self.lock:
+            self.concat_mode = not self.concat_mode
+            os.environ["OCR_CONCAT"] = "1" if self.concat_mode else "0"
+            return self.concat_mode
+
+    def toggle_debug(self):
+        with self.lock:
+            self.debug = not self.debug
+            os.environ["OCR_DEBUG"] = "1" if self.debug else "0"
+            return self.debug
+
+
 class ConcatState:
     """Shared state for concatenation mode."""
     def __init__(self):
@@ -444,7 +519,7 @@ class ConcatState:
     def request_reset(self):
         with self.lock:
             self.reset_requested = True
-            print("\n[Clipboard OCR] >>> New file will be created for next image <<<")
+            print("\n[OCR] >>> New file will be created for next image <<<")
 
     def check_and_clear_reset(self) -> bool:
         with self.lock:
@@ -469,16 +544,135 @@ class ConcatState:
             return self.current_file, self.entry_count
 
 
-def keyboard_listener(state: ConcatState, stop_event: threading.Event):
-    """Listen for 'n' key to start new file."""
-    print("[Keyboard] Press 'n' + Enter to start a new file")
+def print_help():
+    """Print available runtime commands."""
+    print("""
+┌─────────────────────────────────────────────────────────────┐
+│                    RUNTIME COMMANDS                         │
+├─────────────────────────────────────────────────────────────┤
+│  n      - Start NEW file (reset concatenation)              │
+│  l      - Change LANGUAGE                                   │
+│  m      - Change preprocessing MODE                         │
+│  w      - Toggle WHITESPACE preservation                    │
+│  c      - Toggle CONCATENATION mode                         │
+│  d      - Toggle DEBUG mode                                 │
+│  s      - Show current SETTINGS                             │
+│  h / ?  - Show this HELP                                    │
+│  q      - QUIT                                              │
+└─────────────────────────────────────────────────────────────┘
+""")
+
+
+def print_settings(settings: OCRSettings, concat_state: ConcatState):
+    """Print current settings."""
+    s = settings.get_all()
+    current_file, entry_count = concat_state.get_info()
+    print(f"""
+┌─────────────────────────────────────────────────────────────┐
+│                   CURRENT SETTINGS                          │
+├─────────────────────────────────────────────────────────────┤
+│  Language:      {s['lang']:<42} │
+│  Preprocess:    {s['preprocess']:<42} │
+│  Whitespace:    {'preserved (grid)' if s['preserve_spaces'] else 'collapsed (plain)':<42} │
+│  Concatenation: {'ON' if s['concat_mode'] else 'OFF':<42} │
+│  Debug:         {'ON' if s['debug'] else 'OFF':<42} │
+│  Current file:  {(current_file or '(none)'):<42} │
+│  Entry count:   {entry_count:<42} │
+└─────────────────────────────────────────────────────────────┘
+""")
+
+
+def prompt_language_change(settings: OCRSettings):
+    """Prompt user to change language."""
+    print("\n  Select language:")
+    for key, (code, name) in LANGUAGES.items():
+        current = " ← current" if code == settings.lang else ""
+        print(f"    {key}) {name} ({code}){current}")
+    print("    0) Cancel")
+    print()
+
+
+def prompt_preprocess_change(settings: OCRSettings):
+    """Prompt user to change preprocessing mode."""
+    print("\n  Select preprocessing mode:")
+    for key, (mode, name) in PREPROCESS_MODES.items():
+        current = " ← current" if mode == settings.preprocess else ""
+        print(f"    {key}) {name}{current}")
+    print("    0) Cancel")
+    print()
+
+
+def keyboard_listener(settings: OCRSettings, concat_state: ConcatState, stop_event: threading.Event):
+    """Listen for keyboard commands."""
+    print_help()
+
+    waiting_for_lang = False
+    waiting_for_mode = False
+
     while not stop_event.is_set():
         try:
-            # Use select for non-blocking read with timeout
             if select.select([sys.stdin], [], [], 0.5)[0]:
                 line = sys.stdin.readline().strip().lower()
+
+                # Handle sub-menus first
+                if waiting_for_lang:
+                    waiting_for_lang = False
+                    if line in LANGUAGES:
+                        code, name = LANGUAGES[line]
+                        settings.set_lang(code)
+                        print(f"[OCR] Language changed to: {name} ({code})")
+                    elif line != '0':
+                        print("[OCR] Cancelled")
+                    continue
+
+                if waiting_for_mode:
+                    waiting_for_mode = False
+                    if line in PREPROCESS_MODES:
+                        mode, name = PREPROCESS_MODES[line]
+                        settings.set_preprocess(mode)
+                        print(f"[OCR] Preprocessing changed to: {name}")
+                    elif line != '0':
+                        print("[OCR] Cancelled")
+                    continue
+
+                # Main commands
                 if line == 'n':
-                    state.request_reset()
+                    concat_state.request_reset()
+
+                elif line == 'l':
+                    prompt_language_change(settings)
+                    waiting_for_lang = True
+
+                elif line == 'm':
+                    prompt_preprocess_change(settings)
+                    waiting_for_mode = True
+
+                elif line == 'w':
+                    new_val = settings.toggle_whitespace()
+                    status = "ON (grid layout)" if new_val else "OFF (plain layout)"
+                    print(f"[OCR] Whitespace preservation: {status}")
+
+                elif line == 'c':
+                    new_val = settings.toggle_concat()
+                    status = "ON" if new_val else "OFF"
+                    print(f"[OCR] Concatenation mode: {status}")
+
+                elif line == 'd':
+                    new_val = settings.toggle_debug()
+                    status = "ON" if new_val else "OFF"
+                    print(f"[OCR] Debug mode: {status}")
+
+                elif line == 's':
+                    print_settings(settings, concat_state)
+
+                elif line in ('h', '?'):
+                    print_help()
+
+                elif line == 'q':
+                    print("[OCR] Quit requested...")
+                    stop_event.set()
+                    break
+
         except Exception:
             pass
 
@@ -491,12 +685,9 @@ def main_clipboard():
 
     ensure_tesseract_path()
 
-    lang = os.environ.get("OCR_LANG", "eng")
+    # Runtime-modifiable settings
+    settings = OCRSettings()
     interval = float(os.environ.get("OCR_POLL_SEC", "0.5"))
-    layout_mode = os.environ.get("OCR_LAYOUT", "grid")
-    debug = os.environ.get("OCR_DEBUG", "0") == "1"
-    preprocess_method = os.environ.get("OCR_PREPROCESS", "standard")
-    concat_mode = os.environ.get("OCR_CONCAT", "1") == "1"
 
     pb = NSPasteboard.generalPasteboard()
     last_change = pb.changeCount()
@@ -507,22 +698,20 @@ def main_clipboard():
     concat_state = ConcatState()
     stop_event = threading.Event()
 
-    # Start keyboard listener thread if in concat mode
-    kb_thread = None
-    if concat_mode:
-        kb_thread = threading.Thread(target=keyboard_listener, args=(concat_state, stop_event), daemon=True)
-        kb_thread.start()
+    # Always start keyboard listener (for runtime commands)
+    kb_thread = threading.Thread(
+        target=keyboard_listener,
+        args=(settings, concat_state, stop_event),
+        daemon=True
+    )
+    kb_thread.start()
 
-    print("[Clipboard OCR] Watching pasteboard... (Ctrl+C to stop)")
-    print(f"[Clipboard OCR] Lang: {lang}, Layout: {layout_mode}, Preprocess: {preprocess_method}")
-    if concat_mode:
-        print("[Clipboard OCR] Concatenation mode: ON (press 'n' + Enter for new file)")
-    else:
-        print("[Clipboard OCR] Concatenation mode: OFF (each image = new file)")
-    if debug:
-        print("[Clipboard OCR] Debug mode ON - saving preprocessed images")
+    s = settings.get_all()
+    print("[Clipboard OCR] Watching pasteboard... (Ctrl+C or 'q' to stop)")
+    print(f"[Clipboard OCR] Lang: {s['lang']}, Layout: {s['layout']}, Preprocess: {s['preprocess']}")
+    print("[Clipboard OCR] Type 'h' + Enter for runtime commands")
 
-    while True:
+    while not stop_event.is_set():
         try:
             # Check for reset request
             concat_state.check_and_clear_reset()
@@ -542,22 +731,26 @@ def main_clipboard():
                     digest = sha256_bytes(raw_bytes)
                     if digest != last_digest:
                         last_digest = digest
-                        print(f"[Clipboard OCR] New image from {source}. Running OCR...")
+
+                        # Get CURRENT settings (may have changed at runtime!)
+                        s = settings.get_all()
+                        print(f"[Clipboard OCR] New image from {source}. Running OCR (lang={s['lang']}, mode={s['preprocess']})...")
+
                         try:
                             # Save debug image if enabled
-                            if debug:
+                            if s['debug']:
                                 processed = preprocess(img)
                                 debug_path = save_debug_image(processed, "ocr_output", f"debug_{digest[:8]}.png")
                                 print(f"[Clipboard OCR] Debug: {debug_path}")
 
-                            if layout_mode == "grid":
-                                tsv = ocr_tsv(img, lang=lang)
+                            if s['layout'] == "grid":
+                                tsv = ocr_tsv(img, lang=s['lang'])
                                 text = grid_from_tsv(tsv)
                             else:
-                                text = ocr_text(img, lang=lang)
+                                text = ocr_text(img, lang=s['lang'])
 
                             # Handle file saving based on concat mode
-                            if concat_mode:
+                            if s['concat_mode']:
                                 current_file, entry_count = concat_state.get_info()
                                 if current_file is None:
                                     # Create new file
