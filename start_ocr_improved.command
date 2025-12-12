@@ -38,6 +38,7 @@ export OCR_LAYOUT="${OCR_LAYOUT:-grid}"
 export OCR_PREPROCESS="${OCR_PREPROCESS:-standard}"
 export OCR_DEBUG="${OCR_DEBUG:-0}"
 export OCR_WHITELIST="${OCR_WHITELIST:-}"
+export OCR_CONCAT="${OCR_CONCAT:-1}"
 
 # =============================================================================
 # STEP 1: Content Type Selection
@@ -233,6 +234,35 @@ echo ""
 echo "[Whitespace: $SPACE_DESC]"
 
 # =============================================================================
+# STEP 4: Concatenation Mode
+# =============================================================================
+echo ""
+echo "┌─────────────────────────────────────────────────────────────┐"
+echo "│ STEP 4: Concatenation mode                                  │"
+echo "└─────────────────────────────────────────────────────────────┘"
+echo ""
+echo "  Append multiple OCR results to the same file?"
+echo "  1) Yes - Concatenate (press 'n' + Enter to start new file)"
+echo "  2) No  - Each image creates a new file"
+echo ""
+echo -n "Enter choice (1-2) [default: 1]: "
+read -r CONCAT_CHOICE
+
+case "$CONCAT_CHOICE" in
+  2)
+    export OCR_CONCAT="0"
+    CONCAT_DESC="No (separate files)"
+    ;;
+  *)
+    export OCR_CONCAT="1"
+    CONCAT_DESC="Yes (append to same file)"
+    ;;
+esac
+
+echo ""
+echo "[Concatenation: $CONCAT_DESC]"
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""
@@ -243,6 +273,7 @@ echo ""
 echo "  Content type:    $CONTENT_DESC"
 echo "  Language:        $LANG_DESC"
 echo "  Whitespace:      $SPACE_DESC"
+echo "  Concatenation:   $CONCAT_DESC"
 echo "  ─────────────────────────────"
 echo "  OCR_LANG:        $OCR_LANG"
 echo "  OCR_PSM:         $OCR_PSM"

@@ -360,10 +360,20 @@ def build_filename(seed: Optional[str]) -> str:
         return f"ocr_{stamp}.txt"
 
 
-def save_text(text: str, out_dir: str, filename: str) -> str:
+def save_text(text: str, out_dir: str, filename: str, append: bool = False) -> str:
+    """Save or append text to file."""
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, filename)
-    with open(out_path, "w", encoding="utf-8", newline="") as f:
+    mode = "a" if append else "w"
+
+    # Check if file exists and has content (for separator)
+    add_separator = False
+    if append and os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+        add_separator = True
+
+    with open(out_path, mode, encoding="utf-8", newline="") as f:
+        if add_separator:
+            f.write("\n\n" + "=" * 50 + "\n\n")  # Separator between entries
         f.write(text)
     return out_path
 
@@ -419,6 +429,60 @@ def process_image_file(image_path: str, output_dir: str = "ocr_output") -> str:
 
 # ==================== CLIPBOARD WATCH MODE ====================
 
+import threading
+import select
+import sys
+
+class ConcatState:
+    """Shared state for concatenation mode."""
+    def __init__(self):
+        self.current_file: Optional[str] = None
+        self.entry_count: int = 0
+        self.reset_requested: bool = False
+        self.lock = threading.Lock()
+
+    def request_reset(self):
+        with self.lock:
+            self.reset_requested = True
+            print("\n[Clipboard OCR] >>> New file will be created for next image <<<")
+
+    def check_and_clear_reset(self) -> bool:
+        with self.lock:
+            if self.reset_requested:
+                self.reset_requested = False
+                self.current_file = None
+                self.entry_count = 0
+                return True
+            return False
+
+    def set_file(self, filename: str):
+        with self.lock:
+            self.current_file = filename
+            self.entry_count = 1
+
+    def increment(self):
+        with self.lock:
+            self.entry_count += 1
+
+    def get_info(self) -> Tuple[Optional[str], int]:
+        with self.lock:
+            return self.current_file, self.entry_count
+
+
+def keyboard_listener(state: ConcatState, stop_event: threading.Event):
+    """Listen for 'n' key to start new file."""
+    print("[Keyboard] Press 'n' + Enter to start a new file")
+    while not stop_event.is_set():
+        try:
+            # Use select for non-blocking read with timeout
+            if select.select([sys.stdin], [], [], 0.5)[0]:
+                line = sys.stdin.readline().strip().lower()
+                if line == 'n':
+                    state.request_reset()
+        except Exception:
+            pass
+
+
 def main_clipboard():
     """Watch clipboard for images and OCR them."""
     if not HAS_APPKIT:
@@ -432,19 +496,37 @@ def main_clipboard():
     layout_mode = os.environ.get("OCR_LAYOUT", "grid")
     debug = os.environ.get("OCR_DEBUG", "0") == "1"
     preprocess_method = os.environ.get("OCR_PREPROCESS", "standard")
+    concat_mode = os.environ.get("OCR_CONCAT", "1") == "1"
 
     pb = NSPasteboard.generalPasteboard()
     last_change = pb.changeCount()
     last_digest: Optional[str] = None
     last_text_seed: Optional[str] = None
 
+    # Concatenation state
+    concat_state = ConcatState()
+    stop_event = threading.Event()
+
+    # Start keyboard listener thread if in concat mode
+    kb_thread = None
+    if concat_mode:
+        kb_thread = threading.Thread(target=keyboard_listener, args=(concat_state, stop_event), daemon=True)
+        kb_thread.start()
+
     print("[Clipboard OCR] Watching pasteboard... (Ctrl+C to stop)")
     print(f"[Clipboard OCR] Lang: {lang}, Layout: {layout_mode}, Preprocess: {preprocess_method}")
+    if concat_mode:
+        print("[Clipboard OCR] Concatenation mode: ON (press 'n' + Enter for new file)")
+    else:
+        print("[Clipboard OCR] Concatenation mode: OFF (each image = new file)")
     if debug:
         print("[Clipboard OCR] Debug mode ON - saving preprocessed images")
 
     while True:
         try:
+            # Check for reset request
+            concat_state.check_and_clear_reset()
+
             current_change = pb.changeCount()
             if current_change != last_change:
                 last_change = current_change
@@ -474,9 +556,26 @@ def main_clipboard():
                             else:
                                 text = ocr_text(img, lang=lang)
 
-                            filename = build_filename(last_text_seed)
-                            out_path = save_text(text, out_dir="ocr_output", filename=filename)
-                            print(f"[Clipboard OCR] Saved: {out_path}")
+                            # Handle file saving based on concat mode
+                            if concat_mode:
+                                current_file, entry_count = concat_state.get_info()
+                                if current_file is None:
+                                    # Create new file
+                                    filename = build_filename(last_text_seed)
+                                    concat_state.set_file(filename)
+                                    out_path = save_text(text, out_dir="ocr_output", filename=filename, append=False)
+                                    print(f"[Clipboard OCR] New file: {out_path}")
+                                else:
+                                    # Append to existing file
+                                    concat_state.increment()
+                                    out_path = save_text(text, out_dir="ocr_output", filename=current_file, append=True)
+                                    _, count = concat_state.get_info()
+                                    print(f"[Clipboard OCR] Appended (#{count}): {out_path}")
+                            else:
+                                # Non-concat mode: each image = new file
+                                filename = build_filename(last_text_seed)
+                                out_path = save_text(text, out_dir="ocr_output", filename=filename, append=False)
+                                print(f"[Clipboard OCR] Saved: {out_path}")
 
                             if text:
                                 print("---------- OCR RESULT ----------")
@@ -491,6 +590,7 @@ def main_clipboard():
             time.sleep(interval)
         except KeyboardInterrupt:
             print("\n[Clipboard OCR] Stopped.")
+            stop_event.set()
             break
         except Exception as e:
             print(f"[Clipboard OCR] Error: {e}")
