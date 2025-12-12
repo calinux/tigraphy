@@ -202,6 +202,37 @@ echo ""
 echo "[Language: $LANG_DESC]"
 
 # =============================================================================
+# STEP 3: Output Options
+# =============================================================================
+echo ""
+echo "┌─────────────────────────────────────────────────────────────┐"
+echo "│ STEP 3: Output options                                      │"
+echo "└─────────────────────────────────────────────────────────────┘"
+echo ""
+echo "  Preserve whitespace/spacing?"
+echo "  1) Yes - Keep original spacing (for code, tables, configs)"
+echo "  2) No  - Collapse whitespace (for natural text)"
+echo ""
+echo -n "Enter choice (1-2) [default: 1]: "
+read -r SPACE_CHOICE
+
+case "$SPACE_CHOICE" in
+  2)
+    export OCR_PRESERVE_SPACES="0"
+    export OCR_LAYOUT="plain"
+    SPACE_DESC="No (collapsed)"
+    ;;
+  *)
+    export OCR_PRESERVE_SPACES="1"
+    # Keep OCR_LAYOUT as already set by content type
+    SPACE_DESC="Yes (preserved)"
+    ;;
+esac
+
+echo ""
+echo "[Whitespace: $SPACE_DESC]"
+
+# =============================================================================
 # Summary
 # =============================================================================
 echo ""
@@ -211,11 +242,14 @@ echo "└───────────────────────�
 echo ""
 echo "  Content type:    $CONTENT_DESC"
 echo "  Language:        $LANG_DESC"
+echo "  Whitespace:      $SPACE_DESC"
+echo "  ─────────────────────────────"
 echo "  OCR_LANG:        $OCR_LANG"
 echo "  OCR_PSM:         $OCR_PSM"
 echo "  OCR_PREPROCESS:  $OCR_PREPROCESS"
-echo "  OCR_UPSCALE:     $OCR_UPSCALE"
+echo "  OCR_PRESERVE_SPACES: $OCR_PRESERVE_SPACES"
 echo "  OCR_LAYOUT:      $OCR_LAYOUT"
+echo "  OCR_UPSCALE:     $OCR_UPSCALE"
 echo "  OCR_DEBUG:       $OCR_DEBUG"
 if [[ -n "$OCR_WHITELIST" ]]; then
   echo "  OCR_WHITELIST:   (set - ${#OCR_WHITELIST} chars)"
